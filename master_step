@@ -1,0 +1,79 @@
+Master Steps: Focus Timer App
+
+Analysis Summary
+- Vision: Deliver an ultra-simple Pomodoro timer with classic Casio-style LCD aesthetics and zero clutter.
+- Scope: Fixed durations (25/5/15), automatic transitions, digital beep alerts, START/STOP and RESET controls, and a 4-cycle visual counter.
+- Gamification: Separate, minimalist collection screen for points → tomatoes and a daily streak; main timer screen remains unchanged.
+- Non-Functional: Minimal UI, distraction-free, consistent retro theme, reliable timing, accessible audio/visual cues, simple local persistence for Phase 2.
+- Privacy: No accounts, no tracking beyond local data storage; offline-friendly.
+- Constraints: No configurable settings in MVP; keep main screen focused solely on timing and state.
+
+Architecture Outline
+- Timer State Machine: States `WORK`, `SHORT_BREAK`, `LONG_BREAK`, `PAUSED`, `IDLE`; transitions after countdowns or user actions.
+- Countdown Engine: Accurate tick with drift correction; runs foreground; handles pause/resume/reset.
+- Alerts: Beep playback mapping: double beep at work end, single beep at short break end; long break start as automatic transition.
+- UI Screens: 1) Timer screen (LCD font, monochrome, two buttons, session indicators). 2) Collection screen (tomato grid, points, streak).
+- Persistence (Phase 2): Local storage for points, tomatoes, streaks; day calculation based on local time.
+
+Master Todo (Phase 1: MVP)
+- Define UI style guide for monochrome LCD and blocky digital font.
+- Select or design digital font and fallback that matches retro aesthetic.
+- Draft timer state machine with states and transitions.
+- Implement countdown engine with drift correction and pause/resume.
+- Wire START/STOP to toggle run/pause and RESET to initial state.
+- Implement automatic transitions: work → short break → work; after 4 cycles → long break.
+- Build main timer UI with large display and minimal indicators.
+- Add WORK/BREAK/LONG BREAK indicators in LCD style.
+- Implement 4-cycle session counter with filling squares/dots.
+- Integrate audio beep: 2 beeps on work end, 1 beep on break end.
+- Ensure audio respects user device settings and is non-intrusive.
+- Add keyboard accessibility for START/STOP and RESET.
+- Validate timer accuracy across tab focus changes (web) or app states.
+- Write acceptance tests for transitions and beep mapping (where applicable).
+
+Master Todo (Phase 2: Gamification)
+- Define points model: 1 completed 25/5 = 1 point; 4 points = 1 tomato.
+- Implement local persistence for points and tomato count.
+- Design tomato icon set in 8-bit pixel style.
+- Build collection screen with tomato grid and retro theme.
+- Implement daily streak logic based on local midnight boundaries.
+- Add subtle navigation from timer to collection screen (button/gesture).
+- Ensure main timer screen remains unchanged functionally and visually.
+- Create lightweight analytics-free usage counters (local only).
+- Add export/import of local data (optional, if needed later).
+- Write tests for streak calculations and tomato accrual.
+
+Acceptance Criteria (Phase 1)
+- Fixed timers are unchangeable: 25:00 work, 5:00 short break, 15:00 long break.
+- START/STOP toggles running/paused; RESET returns to initial time of current state.
+- At 00:00 work: double beep; state auto-switches to short break (5:00).
+- At 00:00 short break: single beep; state auto-switches to work (25:00).
+- After four completed short breaks, long break (15:00) auto-initiates.
+- Session counter fills correctly per cycle; resets post-long break.
+- Timer accuracy within ±1 second across typical usage.
+- Main screen shows only timer, indicators, START/STOP, RESET; no extra UI.
+
+Acceptance Criteria (Phase 2)
+- 1 point is awarded per completed 25/5 cycle; 4 points → 1 tomato.
+- Tomato grid displays cumulative tomatoes with pixelated icons.
+- Streak increments when at least one tomato earned on a calendar day.
+- Collection screen accessible via subtle control; main timer unchanged.
+- All data persists locally and survives app restarts.
+
+Risks & Mitigations
+- Audio autoplay restrictions: Mitigate by playing beep after first user interaction.
+- Timer drift in background: Use timestamp-based deltas to correct drift on focus.
+- Over-cluttering risks: Keep non-MVP elements strictly off main screen.
+- Streak edge cases: Define day boundary clearly; store last-earned date and compare local dates.
+
+Open Questions
+- Platform focus first (web, mobile, desktop)? Recommendation: start web for speed.
+- Should long break auto-start or prompt? PRD says automatic; confirm default remains automatic.
+- Sound customization later? Out of MVP scope; keep single beep type.
+
+Milestones
+- M1: Visual prototype of main timer screen (static).
+- M2: Functional timer with start/stop/reset and accurate transitions.
+- M3: Audio beeps integrated and session counter working.
+- M4: Gamification collection screen with points → tomatoes and streak.
+- M5: QA pass and documentation.

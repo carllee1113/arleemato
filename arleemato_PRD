@@ -1,0 +1,72 @@
+Of course. Here is a revised Product Requirements Document (PRD) that incorporates the classic digital watch aesthetic and a more detailed user persona and workflow. 
+
+### **Product Requirements Document (PRD): "Focus Timer" App** 
+
+**1. Vision** 
+
+To create an ultra-simple, distraction-free Pomodoro timer app with a classic "Casio" digital watch aesthetic. It is designed for students and professionals who want to improve their focus and productivity by strictly adhering to the Pomodoro Technique, without the clutter of modern app design. 
+
+**2. User Persona** 
+
+*   **Name:** Alex 
+*   **Role:** University Student / Office Worker 
+*   **Age:** 22-35 
+*   **Bio:** Alex is a diligent and goal-oriented individual, but is easily sidetracked by notifications and the endless distractions of the digital world. They value functional, reliable tools over feature-rich, complex applications. They appreciate the retro-cool and single-purpose nature of classic gadgets like a Casio watch. 
+*   **Goals:** 
+    *   To stay focused on a single task for a set period. 
+    *   To take regular, structured breaks to avoid burnout. 
+    *   To track work sessions in a simple, unobtrusive way. 
+*   **Frustrations:** 
+    *   Productivity apps with too many settings and notifications. 
+    *   Visual clutter and animations that break concentration. 
+    *   The temptation to check social media or emails during work intervals. 
+*   **Motivation:** Alex wants a tool that "just works." It should be as simple and reliable as a classic digital watch, helping them build a disciplined work routine. 
+
+**3. User Workflow** 
+
+1.  **Open App:** Alex launches the app. The screen immediately displays the main timer, styled like a classic digital watch face. The timer shows **25:00**. 
+2.  **Start Work Session:** Alex taps a prominent "START/STOP" button. The timer begins to count down. The display is minimalist, showing only the time and a small, static "WORK" indicator. 
+3.  **End of Work Session:** When the timer reaches **00:00**, the app emits a classic, sharp "digital beep" twice. The timer automatically resets to **05:00**, and the indicator changes to "BREAK". 
+4.  **Start Break Session:** The 5-minute break timer begins counting down automatically. 
+5.  **End of Break Session:** At **00:00**, the app beeps once. A small digital icon on the screen (e.g., a square) fills in, indicating one completed Pomodoro cycle. The timer resets to **25:00** for the next work session. 
+6.  **Long Break:** After four "squares" are filled, the app automatically initiates a **15:00** "LONG BREAK". 
+7.  **Pausing/Resetting:** At any point, Alex can tap the "START/STOP" button to pause the timer. A separate "RESET" button allows them to reset the current timer back to its initial state (e.g., 25:00 for a work session). 
+
+--- 
+
+### **Development Phases** 
+
+#### **Phase 1: The MVP - "Digital Focus Timer"** 
+
+The primary goal is to deliver the core, distraction-free timer experience with the specified retro aesthetic. 
+
+*   **UI/UX:** 
+    *   **Theme:** Classic "Casio" watch design. 
+    *   **Display:** Monochrome, LCD-style screen with a blocky, digital font. 
+    *   **Layout:** The screen is dominated by the timer. No other menus or settings are visible on this main screen. 
+    *   **Controls:** Two primary buttons, clearly labeled: "START/STOP" and "RESET". 
+*   **Core Functionality:** 
+    *   **Fixed Timers:** Non-adjustable timers: 25 minutes (Work), 5 minutes (Short Break), 15 minutes (Long Break). 
+    *   **Automatic Transitions:** The app seamlessly and automatically switches between work and break sessions. 
+    *   **Audio Alerts:** A simple, classic digital watch "beep" for all notifications. 
+    *   **Session Counter:** A visual row of four simple shapes (e.g., squares or dots) that fill in to track the four cycles leading to a long break. 
+
+#### **Phase 2: Gamification - "The Tomato Collection"** 
+
+The goal is to add a simple, non-intrusive gamification layer that rewards consistency without cluttering the core experience. 
+
+*   **Concept:** Introduce a simple point and reward system that lives on a separate screen, maintaining the minimalist, retro theme. 
+*   **Features:** 
+    *   **Point System:** 
+        *   1 completed 25/5 session = **1 Point**. 
+        *   4 Points = **1 Tomato**. 
+    *   **The Collection Screen:** 
+        *   A new screen, accessible via a subtle, secondary button or gesture from the main timer screen. 
+        *   This screen displays the user's "Tomato Collection." For every "Tomato" earned, a small, 8-bit style pixel tomato icon is added to a grid. 
+        *   This provides a simple, visual log of accomplishment over time. 
+    *   **Daily Streak:** 
+        *   A simple "STREAK" counter on the collection screen that tracks consecutive days of use (i.e., earning at least one Tomato). This encourages daily habit formation. 
+*   **UI/UX:** 
+    *   The main timer screen remains **100% unchanged and distraction-free**. 
+    *   The collection screen maintains the same retro, pixelated aesthetic as the main timer. 
+    *   The focus is on passive rewards (collecting) rather than active engagement (spending points), which keeps the experience simple and aligned with the user's goals.
