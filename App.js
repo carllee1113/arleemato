@@ -31,6 +31,13 @@ export default function App() {
   const startTimestampRef = useRef(null);
   const lastTickRef = useRef(null);
 
+  // Notes accumulation and download prompt states (declare early for effects)
+  const [noteMode, setNoteMode] = useState(null); // 'NOTE' | 'DO_LATER' | 'IDEA' | null
+  const [noteEntries, setNoteEntries] = useState([]); // accumulated entries across sessions
+  const [noteDraftHeader, setNoteDraftHeader] = useState(''); // e.g., "YYYY-MM-DD HH:mm Notes: "
+  const [noteDraftBody, setNoteDraftBody] = useState('');
+  const [showDownloadPrompt, setShowDownloadPrompt] = useState(false);
+
   const label = useMemo(() => {
     switch (state) {
       case STATES.WORK:
@@ -66,26 +73,31 @@ export default function App() {
   useEffect(() => {
     if (remaining === 0) {
       if (state === STATES.WORK) {
-        const nextCycles = completedCycles + 1;
-        setCompletedCycles(nextCycles);
-        if (nextCycles < totalSessions) {
+        if (completedCycles < totalSessions - 1) {
+          // End work: start break without incrementing session square
           setState(STATES.SHORT_BREAK);
           setRemaining(restSeconds);
           setRunning(true);
         } else {
-          // All sessions completed: pause and show Restart option
+          // Final work: complete the last session, pause, and prompt download if notes exist
+          const committed = commitDraftIfAny();
+          setCompletedCycles(totalSessions);
           setRunning(false);
           setPlanCompleted(true);
           setState(STATES.PAUSED);
           setRemaining(focusSeconds);
+          if ((noteEntries.length + (committed ? 1 : 0)) > 0) setShowDownloadPrompt(true);
         }
       } else if (state === STATES.SHORT_BREAK) {
+        // Break end: increment completed session square, then start next work
+        const nextCycles = completedCycles + 1;
+        setCompletedCycles(nextCycles);
         setState(STATES.WORK);
         setRemaining(focusSeconds);
         setRunning(true);
       }
     }
-  }, [remaining, state, completedCycles, totalSessions, focusSeconds, restSeconds]);
+  }, [remaining, state, completedCycles, totalSessions, focusSeconds, restSeconds, noteEntries, noteDraftBody, noteMode]);
 
   const handlePrimaryPress = () => {
     if (!hasStarted) {
@@ -104,8 +116,20 @@ export default function App() {
       setRemaining(focusSeconds);
       setRunning(true);
       setPlanCompleted(false);
+      setShowDownloadPrompt(false);
+      setNoteEntries([]);
+      setNoteMode(null);
+      setNoteDraftHeader('');
+      setNoteDraftBody('');
     } else {
-      setRunning((r) => !r);
+      setRunning((r) => {
+        const newRunning = !r;
+        if (newRunning) {
+          // Resume: commit note and hide input
+          commitDraftIfAny();
+        }
+        return newRunning;
+      });
     }
   };
 
@@ -113,25 +137,76 @@ export default function App() {
   const [planSessions, setPlanSessions] = useState(totalSessions);
   const [planFocusMins, setPlanFocusMins] = useState(Math.floor(focusSeconds / 60));
   const [planRestMins, setPlanRestMins] = useState(Math.floor(restSeconds / 60));
-  const [noteMode, setNoteMode] = useState(null); // 'NOTE' | 'DO_LATER' | 'IDEA' | null
-  const [noteText, setNoteText] = useState('');
 
   const clamp = (val, min, max) => Math.max(min, Math.min(max, val));
 
-  const openNote = (mode) => {
+  const typeLabelFor = (mode) => (mode === 'NOTE' ? 'Notes' : mode === 'DO_LATER' ? 'Do Later' : 'Idea');
+  const currentDateTimeStr = () => {
     const d = new Date();
     const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const timeStr = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-    const label = mode === 'NOTE' ? 'Note' : mode === 'DO_LATER' ? 'Do Later' : 'Idea';
+    return `${dateStr} ${timeStr}`;
+  };
+  const currentDateTimeForFilename = () => {
+    const d = new Date();
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const timeStr = `${String(d.getHours()).padStart(2, '0')}-${String(d.getMinutes()).padStart(2, '0')}`; // avoid ':' in filenames
+    return `${dateStr}_${timeStr}`;
+  };
+  const buildNoteDisplayPrefix = () => {
+    const prev = noteEntries.map((e) => `${e.header}${e.body}`).join('\n');
+    return `${prev}${prev.length ? '\n' : ''}${noteDraftHeader}`;
+  };
+  const handleNoteChange = (text) => {
+    const prefix = buildNoteDisplayPrefix();
+    if (text.startsWith(prefix)) {
+      setNoteDraftBody(text.slice(prefix.length));
+    } else {
+      const idx = text.lastIndexOf(noteDraftHeader);
+      if (idx >= 0) {
+        setNoteDraftBody(text.slice(idx + noteDraftHeader.length));
+      } else {
+        setNoteDraftBody(text);
+      }
+    }
+  };
+  const commitDraftIfAny = () => {
+    if (!noteMode) return false;
+    const body = (noteDraftBody || '').trim();
+    const didCommit = body.length > 0;
+    if (didCommit) {
+      setNoteEntries((prev) => [...prev, { header: noteDraftHeader, body }]);
+    }
+    setNoteMode(null);
+    setNoteDraftHeader('');
+    setNoteDraftBody('');
+    return didCommit;
+  };
+  const getNotesPlainText = () => noteEntries.map((e) => `${e.header}${e.body}`).join('\n');
+  const downloadNotes = () => {
+    const text = getNotesPlainText();
+    if (Platform.OS === 'web') {
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `arleenote${currentDateTimeForFilename()}.txt`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
+  };
+  const openNote = (mode) => {
     if (noteMode === mode) {
       setNoteMode(null);
-    } else {
-      setNoteMode(mode);
-      setNoteText(`${dateStr} ${timeStr} ${label}: `);
+      return;
     }
+    setNoteMode(mode);
+    setNoteDraftHeader(`${currentDateTimeStr()} ${typeLabelFor(mode)}: `);
+    setNoteDraftBody('');
     // Pressing notes pauses the clock and switches primary label to Resume
     setRunning(false);
-    setPlanCompleted(false);
   };
 
   const applyPlan = (startNow = false) => {
@@ -146,25 +221,35 @@ export default function App() {
     setState(STATES.WORK);
     setRemaining(newFocus);
     if (startNow) { setShowPlan(false); setHasStarted(true); setPlanCompleted(false); }
+    // Reset notes and download prompt when applying a new plan
+    setNoteEntries([]);
+    setShowDownloadPrompt(false);
+    setNoteMode(null);
+    setNoteDraftHeader('');
+    setNoteDraftBody('');
   };
 
   const passCurrentSession = () => {
     const continueRunning = running;
     if (state === STATES.WORK) {
-      const nextCycles = completedCycles + 1;
-      setCompletedCycles(nextCycles);
-      if (nextCycles < totalSessions) {
+      if (completedCycles < totalSessions - 1) {
         setState(STATES.SHORT_BREAK);
         setRemaining(restSeconds);
         setRunning(continueRunning);
       } else {
-        // End of cycle: pause and enable Restart
+        // Final work passed: commit any note and finish plan
+        const committed = commitDraftIfAny();
+        setCompletedCycles(totalSessions);
         setRunning(false);
         setPlanCompleted(true);
         setState(STATES.PAUSED);
         setRemaining(focusSeconds);
+        if ((noteEntries.length + (committed ? 1 : 0)) > 0) setShowDownloadPrompt(true);
       }
     } else if (state === STATES.SHORT_BREAK || state === STATES.LONG_BREAK) {
+      // Break passed counts as completing one session pair
+      const nextCycles = completedCycles + 1;
+      setCompletedCycles(nextCycles);
       setState(STATES.WORK);
       setRemaining(focusSeconds);
       setRunning(continueRunning);
@@ -182,9 +267,9 @@ export default function App() {
   useEffect(() => {
     const update = () => {
       const d = new Date();
-      let h = d.getHours() % 12 || 12; // 12-hour style like the reference
+      const hh = String(d.getHours()).padStart(2, '0');
       const mm = String(d.getMinutes()).padStart(2, '0');
-      setNowStr(`${h}:${mm}`);
+      setNowStr(`${hh}:${mm}`);
     };
     update();
     const id = setInterval(update, 1000);
@@ -352,13 +437,27 @@ export default function App() {
         {noteMode && (
           <View style={styles.noteInputPanel}>
             <TextInput
-              value={noteText}
-              onChangeText={setNoteText}
+              value={`${buildNoteDisplayPrefix()}${noteDraftBody}`}
+              onChangeText={handleNoteChange}
               multiline
               style={styles.noteInput}
               placeholder="Type here…"
               placeholderTextColor="#5F7F5F"
             />
+          </View>
+        )}
+
+        {showDownloadPrompt && (
+          <View style={styles.downloadPanel}>
+            <Text style={styles.downloadText}>Sessions complete. Download notes?</Text>
+            <View style={styles.downloadBtns}>
+              <Pressable style={styles.button} onPress={downloadNotes}>
+                <Text style={styles.buttonText}>DOWNLOAD NOTES</Text>
+              </Pressable>
+              <Pressable style={styles.buttonSecondary} onPress={() => setShowDownloadPrompt(false)}>
+                <Text style={styles.buttonText}>CLOSE</Text>
+              </Pressable>
+            </View>
           </View>
         )}
       </View>
@@ -572,5 +671,25 @@ const styles = StyleSheet.create({
     fontFamily: 'VT323_400Regular',
     paddingHorizontal: 10,
     paddingVertical: 8,
+  },
+  downloadPanel: {
+    marginTop: 12,
+    padding: 12,
+    borderWidth: 2,
+    borderColor: '#334033',
+    backgroundColor: '#0F120F',
+    borderRadius: 8,
+  },
+  downloadText: {
+    color: '#9FEA8F',
+    fontSize: 16,
+    fontFamily: 'VT323_400Regular',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  downloadBtns: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 14,
   },
 });
