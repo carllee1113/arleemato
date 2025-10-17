@@ -438,6 +438,11 @@ export default function App() {
             <Text style={styles.helpText}>• At plan end, download notes as a text file if any were entered.</Text>
             <Text style={styles.helpText}>• Press RESTART to start a new plan (clears notes).</Text>
             <Text style={styles.helpText}>• Press PLAN to configure sessions, focus minutes and rest minutes.</Text>
+            <View style={styles.planActions}>
+              <Pressable style={styles.buttonSecondary} onPress={() => setShowHelp(false)}>
+                <Text style={styles.buttonText}>OK</Text>
+              </Pressable>
+            </View>
           </View>
         )}
 
