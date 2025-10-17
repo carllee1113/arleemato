@@ -37,6 +37,7 @@ export default function App() {
   const [noteDraftHeader, setNoteDraftHeader] = useState(''); // e.g., "YYYY-MM-DD HH:mm Notes: "
   const [noteDraftBody, setNoteDraftBody] = useState('');
   const [showDownloadPrompt, setShowDownloadPrompt] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
 
   const label = useMemo(() => {
     switch (state) {
@@ -351,7 +352,9 @@ export default function App() {
       <View style={styles.screen}>
         <View style={styles.lcd}>
           <View style={styles.topRow}>
-            <View />
+            <Pressable style={styles.helpBtn} onPress={() => setShowHelp((v) => !v)}>
+              <Text style={styles.helpBtnText}>?</Text>
+            </Pressable>
             <Text style={styles.topValue}>{nowStr}</Text>
           </View>
           <View style={styles.midRow}>
@@ -418,6 +421,23 @@ export default function App() {
             <Pressable onPress={() => (hasStarted ? passCurrentSession() : setShowPlan((v) => !v))} style={styles.buttonSecondary}>
               <Text style={styles.buttonText}>{hasStarted ? 'PASS' : 'PLAN'}</Text>
             </Pressable>
+          </View>
+        )}
+
+        {showHelp && (
+          <View style={styles.helpPanel}>
+            <Text style={styles.helpTitle}>Instructions</Text>
+            <Text style={styles.helpText}>• Press START to begin a focus session.</Text>
+            <Text style={styles.helpText}>• Press PAUSE to pause; RESUME to continue.</Text>
+            <Text style={styles.helpText}>• Press PASS to move to break or next work.</Text>
+            <Text style={styles.helpText}>• Squares below time fill after each break; final fills at last work end.</Text>
+            <Text style={styles.helpText}>• Top-right clock shows local time in 24-hour format.</Text>
+            <Text style={styles.helpText}>• Press NOTES / DO LATER / IDEA to open a note field.</Text>
+            <Text style={styles.helpText}>• When notes are open, the timer pauses and primary shows RESUME.</Text>
+            <Text style={styles.helpText}>• Press RESUME to commit the current note and hide the input.</Text>
+            <Text style={styles.helpText}>• At plan end, download notes as a text file if any were entered.</Text>
+            <Text style={styles.helpText}>• Press RESTART to start a new plan (clears notes).</Text>
+            <Text style={styles.helpText}>• Press PLAN to configure sessions, focus minutes and rest minutes.</Text>
           </View>
         )}
 
@@ -671,6 +691,43 @@ const styles = StyleSheet.create({
     fontFamily: 'VT323_400Regular',
     paddingHorizontal: 10,
     paddingVertical: 8,
+  },
+  helpBtn: {
+    width: 28,
+    height: 28,
+    borderWidth: 2,
+    borderColor: '#334033',
+    backgroundColor: '#0F120F',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 4,
+  },
+  helpBtnText: {
+    color: '#9FEA8F',
+    fontSize: 16,
+    letterSpacing: 1,
+    fontFamily: 'VT323_400Regular',
+  },
+  helpPanel: {
+    marginTop: 12,
+    padding: 12,
+    borderWidth: 2,
+    borderColor: '#334033',
+    backgroundColor: '#0F120F',
+    borderRadius: 8,
+  },
+  helpTitle: {
+    color: '#9FEA8F',
+    fontSize: 18,
+    fontFamily: 'VT323_400Regular',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  helpText: {
+    color: '#9FEA8F',
+    fontSize: 16,
+    fontFamily: 'VT323_400Regular',
+    marginBottom: 4,
   },
   downloadPanel: {
     marginTop: 12,
