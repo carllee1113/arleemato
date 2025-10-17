@@ -6,7 +6,9 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "build": "npm run vercel-build",
+    "vercel-build": "expo export --platform web"
   },
   "dependencies": {
     "@expo-google-fonts/vt323": "^0.4.1",
