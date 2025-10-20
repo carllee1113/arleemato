@@ -3,6 +3,7 @@ import { StyleSheet, Text, View, Pressable, Platform, TextInput } from 'react-na
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFonts, VT323_400Regular } from '@expo-google-fonts/vt323';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
  
 
 const DEFAULT_WORK_SECONDS = 25 * 60;
@@ -225,6 +226,39 @@ export default function App() {
       URL.revokeObjectURL(url);
     }
   };
+
+  // Notion sync
+  const [notionSyncTriggered, setNotionSyncTriggered] = useState(false);
+  const [notionSyncResult, setNotionSyncResult] = useState(null);
+  const getNotionEndpoint = () => {
+    try {
+      const extra = Constants?.expoConfig?.extra || {};
+      return extra.notionEndpoint || '';
+    } catch (e) {
+      return '';
+    }
+  };
+  const toNotionPayload = (entries) => entries.map((e) => ({ header: e.header, body: e.body }));
+  const sendNotesToNotion = async (entries) => {
+    const endpoint = getNotionEndpoint();
+    if (!endpoint) return false;
+    try {
+      const resp = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entries })
+      });
+      return resp.ok;
+    } catch (e) {
+      return false;
+    }
+  };
+  useEffect(() => {
+  if (showDownloadPrompt) {
+    setNotionSyncTriggered(false);
+    setNotionSyncResult(null);
+  }
+}, [showDownloadPrompt]);
   const openNote = (mode) => {
     if (noteMode === mode) {
       setNoteMode(null);
@@ -529,18 +563,21 @@ export default function App() {
         )}
 
         {showDownloadPrompt && (
-          <View style={styles.downloadPanel}>
-            <Text style={styles.downloadText}>Sessions complete. Download notes?</Text>
-            <View style={styles.downloadBtns}>
-              <Pressable style={styles.button} onPress={downloadNotes}>
-                <Text style={styles.buttonText}>DOWNLOAD NOTES</Text>
-              </Pressable>
-              <Pressable style={styles.buttonSecondary} onPress={() => setShowDownloadPrompt(false)}>
-                <Text style={styles.buttonText}>CLOSE</Text>
-              </Pressable>
-            </View>
-          </View>
-        )}
+  <View style={styles.downloadPanel}>
+    <Text style={styles.downloadText}>Sessions complete. Send notes to Notion?</Text>
+    <View style={styles.downloadBtns}>
+      <Pressable style={styles.button} onPress={handleSendToNotion}>
+        <Text style={styles.buttonText}>{notionSyncResult ? 'SENT' : 'SEND TO NOTION'}</Text>
+      </Pressable>
+      <Pressable style={styles.buttonSecondary} onPress={downloadNotes}>
+        <Text style={styles.buttonText}>DOWNLOAD NOTES</Text>
+      </Pressable>
+      <Pressable style={styles.buttonSecondary} onPress={() => setShowDownloadPrompt(false)}>
+        <Text style={styles.buttonText}>CLOSE</Text>
+      </Pressable>
+    </View>
+  </View>
+)}
       </View>
     </View>
   );
@@ -708,6 +745,7 @@ const styles = StyleSheet.create({
     borderColor: '#8FD97C',
     paddingVertical: 12,
     alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: '#111411',
   },
   buttonSecondary: {
@@ -716,6 +754,7 @@ const styles = StyleSheet.create({
     borderColor: '#334033',
     paddingVertical: 12,
     alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: '#0F120F',
   },
   buttonText: {
@@ -723,6 +762,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1.5,
     fontSize: 16,
     fontFamily: 'VT323_400Regular',
+    textAlign: 'center',
   },
   noteBar: {
     flexDirection: 'row',
@@ -736,6 +776,7 @@ const styles = StyleSheet.create({
     borderColor: '#334033',
     paddingVertical: 10,
     alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: '#0F120F',
   },
   noteInputPanel: {
@@ -865,4 +906,9 @@ const HistoryHeatmap = ({ history, weeks = 12 }) => {
       </View>
     </View>
   );
+};
+
+const handleSendToNotion = async () => {
+  const ok = await sendNotesToNotion(toNotionPayload(noteEntries));
+  setNotionSyncResult(ok);
 };
