@@ -2,6 +2,8 @@ import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, Text, View, Pressable, Platform, TextInput } from 'react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFonts, VT323_400Regular } from '@expo-google-fonts/vt323';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
  
 
 const DEFAULT_WORK_SECONDS = 25 * 60;
@@ -38,6 +40,29 @@ export default function App() {
   const [noteDraftBody, setNoteDraftBody] = useState('');
   const [showDownloadPrompt, setShowDownloadPrompt] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyMap, setHistoryMap] = useState({});
+  const HISTORY_KEY = 'pomodoroHistory';
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(HISTORY_KEY);
+        setHistoryMap(raw ? JSON.parse(raw) : {});
+      } catch (e) {}
+    })();
+  }, []);
+
+  const recordDailyCompletion = async () => {
+    try {
+      const day = new Date().toISOString().slice(0, 10);
+      const raw = await AsyncStorage.getItem(HISTORY_KEY);
+      const map = raw ? JSON.parse(raw) : {};
+      map[day] = (map[day] || 0) + 1;
+      await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(map));
+      setHistoryMap(map);
+    } catch (e) {}
+  };
 
   const label = useMemo(() => {
     switch (state) {
@@ -82,6 +107,7 @@ export default function App() {
         } else {
           // Final work: complete the last session, pause, and prompt download if notes exist
           const committed = commitDraftIfAny();
+          recordDailyCompletion();
           setCompletedCycles(totalSessions);
           setRunning(false);
           setPlanCompleted(true);
@@ -92,6 +118,7 @@ export default function App() {
       } else if (state === STATES.SHORT_BREAK) {
         // Break end: increment completed session square, then start next work
         const nextCycles = completedCycles + 1;
+        recordDailyCompletion();
         setCompletedCycles(nextCycles);
         setState(STATES.WORK);
         setRemaining(focusSeconds);
@@ -108,6 +135,7 @@ export default function App() {
       setRemaining(focusSeconds);
       setRunning(true);
       setPlanCompleted(false);
+      setCompletedCycles(1); // fill first square on START
       return;
     }
     if (planCompleted) {
@@ -198,6 +226,44 @@ export default function App() {
       URL.revokeObjectURL(url);
     }
   };
+
+  // Notion sync
+  const [notionSyncTriggered, setNotionSyncTriggered] = useState(false);
+  const [notionSyncResult, setNotionSyncResult] = useState(null);
+  const getNotionEndpoint = () => {
+    try {
+      const extra = Constants?.expoConfig?.extra || {};
+      return extra.notionEndpoint || '';
+    } catch (e) {
+      return '';
+    }
+  };
+  const toNotionPayload = (entries) => entries.map((e) => ({ header: e.header, body: e.body }));
+  const sendNotesToNotion = async (entries) => {
+    const endpoint = getNotionEndpoint();
+    if (!endpoint) return false;
+    try {
+      const resp = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entries })
+      });
+      return resp.ok;
+    } catch (e) {
+      return false;
+    }
+  };
+  useEffect(() => {
+  if (showDownloadPrompt) {
+    setNotionSyncTriggered(false);
+    setNotionSyncResult(null);
+  }
+}, [showDownloadPrompt]);
+
+  const handleSendToNotion = async () => {
+    const ok = await sendNotesToNotion(toNotionPayload(noteEntries));
+    setNotionSyncResult(ok);
+  };
   const openNote = (mode) => {
     if (noteMode === mode) {
       setNoteMode(null);
@@ -221,7 +287,7 @@ export default function App() {
     setRunning(Boolean(startNow));
     setState(STATES.WORK);
     setRemaining(newFocus);
-    if (startNow) { setShowPlan(false); setHasStarted(true); setPlanCompleted(false); }
+    if (startNow) { setShowPlan(false); setHasStarted(true); setPlanCompleted(false); setCompletedCycles(1); }
     // Reset notes and download prompt when applying a new plan
     setNoteEntries([]);
     setShowDownloadPrompt(false);
@@ -240,6 +306,7 @@ export default function App() {
       } else {
         // Final work passed: commit any note and finish plan
         const committed = commitDraftIfAny();
+        recordDailyCompletion();
         setCompletedCycles(totalSessions);
         setRunning(false);
         setPlanCompleted(true);
@@ -250,6 +317,7 @@ export default function App() {
     } else if (state === STATES.SHORT_BREAK || state === STATES.LONG_BREAK) {
       // Break passed counts as completing one session pair
       const nextCycles = completedCycles + 1;
+      recordDailyCompletion();
       setCompletedCycles(nextCycles);
       setState(STATES.WORK);
       setRemaining(focusSeconds);
@@ -352,9 +420,14 @@ export default function App() {
       <View style={styles.screen}>
         <View style={styles.lcd}>
           <View style={styles.topRow}>
-            <Pressable style={styles.helpBtn} onPress={() => setShowHelp((v) => !v)}>
-              <Text style={styles.helpBtnText}>?</Text>
-            </Pressable>
+            <View style={{ flexDirection: 'row', gap: 6 }}>
+              <Pressable style={styles.helpBtn} onPress={() => setShowHelp((v) => !v)}>
+                <Text style={styles.helpBtnText}>?</Text>
+              </Pressable>
+              <Pressable style={styles.helpBtn} onPress={() => setShowHistory((v) => !v)}>
+                <Text style={styles.helpBtnText}>H</Text>
+              </Pressable>
+            </View>
             <Text style={styles.topValue}>{nowStr}</Text>
           </View>
           <View style={styles.midRow}>
@@ -375,7 +448,7 @@ export default function App() {
             ))}
           </View>
           <View style={styles.bottomRow}>
-            <Text style={styles.bottomLabel}>aleemato</Text>
+            <Text style={styles.bottomLabel}>arleemato</Text>
           </View>
         </View>
 
@@ -418,8 +491,8 @@ export default function App() {
             <Pressable onPress={handlePrimaryPress} style={styles.button}>
               <Text style={styles.buttonText}>{!hasStarted ? 'START' : planCompleted ? 'RESTART' : running ? 'PAUSE' : 'RESUME'}</Text>
             </Pressable>
-            <Pressable onPress={() => (hasStarted ? passCurrentSession() : setShowPlan((v) => !v))} style={styles.buttonSecondary}>
-              <Text style={styles.buttonText}>{hasStarted ? 'PASS' : 'PLAN'}</Text>
+            <Pressable onPress={() => (hasStarted && !planCompleted ? passCurrentSession() : setShowPlan((v) => !v))} style={styles.buttonSecondary}>
+              <Text style={styles.buttonText}>{hasStarted && !planCompleted ? 'PASS' : 'PLAN'}</Text>
             </Pressable>
           </View>
         )}
@@ -441,6 +514,28 @@ export default function App() {
             <View style={styles.planActions}>
               <Pressable style={styles.buttonSecondary} onPress={() => setShowHelp(false)}>
                 <Text style={styles.buttonText}>OK</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
+        {showHistory && (
+          <View style={styles.helpPanel}>
+            <Text style={styles.helpTitle}>History</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <View style={{ flex: 1 }}>
+                <HistoryHeatmap history={historyMap} weeks={12} />
+              </View>
+              <View style={{ width: 90, marginLeft: 8, alignItems: 'flex-end' }}>
+                <Text style={{ color: '#9FEA8F', fontSize: 18, fontFamily: 'VT323_400Regular' }}>{Object.values(historyMap).reduce((s,v)=>s+(v||0),0)}</Text>
+                <Text style={{ color: '#5F7F5F', fontSize: 12, fontFamily: 'VT323_400Regular' }}>SESSIONS</Text>
+                <Text style={{ color: '#9FEA8F', fontSize: 18, fontFamily: 'VT323_400Regular', marginTop: 6 }}>{Object.values(historyMap).filter(v=>v>0).length}</Text>
+                <Text style={{ color: '#5F7F5F', fontSize: 12, fontFamily: 'VT323_400Regular' }}>DAYS</Text>
+              </View>
+            </View>
+            <View style={styles.planActions}>
+              <Pressable style={styles.buttonSecondary} onPress={() => setShowHistory(false)}>
+                <Text style={styles.buttonText}>CLOSE</Text>
               </Pressable>
             </View>
           </View>
@@ -473,18 +568,21 @@ export default function App() {
         )}
 
         {showDownloadPrompt && (
-          <View style={styles.downloadPanel}>
-            <Text style={styles.downloadText}>Sessions complete. Download notes?</Text>
-            <View style={styles.downloadBtns}>
-              <Pressable style={styles.button} onPress={downloadNotes}>
-                <Text style={styles.buttonText}>DOWNLOAD NOTES</Text>
-              </Pressable>
-              <Pressable style={styles.buttonSecondary} onPress={() => setShowDownloadPrompt(false)}>
-                <Text style={styles.buttonText}>CLOSE</Text>
-              </Pressable>
-            </View>
-          </View>
-        )}
+  <View style={styles.downloadPanel}>
+    <Text style={styles.downloadText}>Sessions complete. Send notes to Notion?</Text>
+    <View style={styles.downloadBtns}>
+      <Pressable style={styles.button} onPress={handleSendToNotion}>
+        <Text style={styles.buttonText}>{notionSyncResult ? 'SENT' : 'SEND TO NOTION'}</Text>
+      </Pressable>
+      <Pressable style={styles.buttonSecondary} onPress={downloadNotes}>
+        <Text style={styles.buttonText}>DOWNLOAD NOTES</Text>
+      </Pressable>
+      <Pressable style={styles.buttonSecondary} onPress={() => setShowDownloadPrompt(false)}>
+        <Text style={styles.buttonText}>CLOSE</Text>
+      </Pressable>
+    </View>
+  </View>
+)}
       </View>
     </View>
   );
@@ -652,6 +750,7 @@ const styles = StyleSheet.create({
     borderColor: '#8FD97C',
     paddingVertical: 12,
     alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: '#111411',
   },
   buttonSecondary: {
@@ -660,6 +759,7 @@ const styles = StyleSheet.create({
     borderColor: '#334033',
     paddingVertical: 12,
     alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: '#0F120F',
   },
   buttonText: {
@@ -667,6 +767,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1.5,
     fontSize: 16,
     fontFamily: 'VT323_400Regular',
+    textAlign: 'center',
   },
   noteBar: {
     flexDirection: 'row',
@@ -680,6 +781,7 @@ const styles = StyleSheet.create({
     borderColor: '#334033',
     paddingVertical: 10,
     alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: '#0F120F',
   },
   noteInputPanel: {
@@ -755,3 +857,58 @@ const styles = StyleSheet.create({
     gap: 14,
   },
 });
+
+// Heatmap helpers
+const generateDays = (weeks = 12) => {
+  const days = [];
+  const today = new Date();
+  for (let i = weeks * 7 - 1; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    days.push(d);
+  }
+  return days;
+};
+const colorFor = (count, max) => {
+  if (!count) return '#2B2B2B';
+  if (count >= 4) return '#93c47d';
+  if (count === 3) return '#6aa84f';
+  if (count === 2) return '#38761d';
+  return '#274e13';
+};
+const HistoryHeatmap = ({ history, weeks = 12 }) => {
+  const days = generateDays(weeks);
+  const max = days.reduce((m, d) => {
+    const key = d.toISOString().slice(0, 10);
+    return Math.max(m, history[key] || 0);
+  }, 0);
+  const columns = [];
+  for (let i = 0; i < days.length; i += 7) columns.push(days.slice(i, i + 7));
+  const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const monthLabels = columns.map((week) => {
+    const firstOfMonth = week.find((d) => d.getDate() === 1);
+    return firstOfMonth ? monthNames[firstOfMonth.getMonth()] : '';
+  });
+  return (
+    <View style={{ flexDirection: 'column', marginTop: 8 }}>
+      <View style={{ flexDirection: 'row' }}>
+        {columns.map((week, wi) => (
+          <View key={wi} style={{ marginRight: 3 }}>
+            {week.map((d, di) => {
+              const key = d.toISOString().slice(0, 10);
+              const count = history[key] || 0;
+              return (
+                <View key={di} style={{ width: 10, height: 10, marginBottom: 2, borderRadius: 2, backgroundColor: colorFor(count, max) }} />
+              );
+            })}
+          </View>
+        ))}
+      </View>
+      <View style={{ flexDirection: 'row', marginTop: 6 }}>
+        {monthLabels.map((label, i) => (
+          <Text key={i} style={{ width: 13, color: '#5F7F5F', fontSize: 10, fontFamily: 'VT323_400Regular' }}>{label}</Text>
+        ))}
+      </View>
+    </View>
+  );
+};

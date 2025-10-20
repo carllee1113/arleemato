@@ -27,6 +27,9 @@
     },
     "plugins": [
       "expo-font"
-    ]
+    ],
+    "extra": {
+      "notionEndpoint": "https://arleemato.vercel.app/api/notion"
+    }
   }
 }
