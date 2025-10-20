@@ -259,6 +259,11 @@ export default function App() {
     setNotionSyncResult(null);
   }
 }, [showDownloadPrompt]);
+
+  const handleSendToNotion = async () => {
+    const ok = await sendNotesToNotion(toNotionPayload(noteEntries));
+    setNotionSyncResult(ok);
+  };
   const openNote = (mode) => {
     if (noteMode === mode) {
       setNoteMode(null);
@@ -906,9 +911,4 @@ const HistoryHeatmap = ({ history, weeks = 12 }) => {
       </View>
     </View>
   );
-};
-
-const handleSendToNotion = async () => {
-  const ok = await sendNotesToNotion(toNotionPayload(noteEntries));
-  setNotionSyncResult(ok);
 };
