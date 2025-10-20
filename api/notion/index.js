@@ -10,6 +10,18 @@
 // Header format: "YYYY-MM-DD HH:mm <TypeLabel>: " where TypeLabel ∈ {Notes, Do Later, Idea}
 
 module.exports = async (req, res) => {
+  // CORS: allow web app to call this endpoint
+  const origin = req.headers.origin || '*';
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  // Handle preflight
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
@@ -28,7 +40,12 @@ module.exports = async (req, res) => {
 
   let entries;
   try {
-    const data = req.body || {};
+    // Safely parse JSON body for environments that provide body as string
+    let data = req.body;
+    if (typeof data === 'string') {
+      try { data = JSON.parse(data); } catch (_) { data = {}; }
+    }
+    data = data || {};
     entries = Array.isArray(data.entries) ? data.entries : [];
   } catch (e) {
     return res.status(400).json({ error: 'Invalid JSON body' });
@@ -40,37 +57,31 @@ module.exports = async (req, res) => {
 
   const results = [];
   for (const entry of entries) {
-    const { header = '', body = '' } = entry || {};
-    const parsed = parseHeader(header);
+    const parsed = parseHeader(entry.header || '');
+    const body = (entry.body || '').trim();
+    if (!body) { results.push({ ok: false, error: 'Empty body' }); continue; }
 
     try {
       let resp;
       if (databaseId) {
         resp = await notionCreatePageInDatabase(token, databaseId, parsed, body);
       } else {
-        const parentId = parentIds[parsed.type] || parentIds.NOTE;
-        if (!parentId) {
-          results.push({ ok: false, error: `Missing parent (page) ID for type ${parsed.type}. Set NOTION_DATABASE_ID (recommended) or the specific page ID.` });
+        const parent = parentIds[parsed.type];
+        if (!parent) {
+          results.push({ ok: false, error: `Missing parent page for ${parsed.type}` });
           continue;
         }
         const title = `${parsed.dateStr} - ${parsed.typeLabel}`;
-        resp = await notionCreatePageUnderPage(token, parentId, title, parsed, body);
+        resp = await notionCreatePageUnderPage(token, parent, title, parsed, body);
       }
-
-      if (!resp.ok) {
-        const errText = await resp.text();
-        results.push({ ok: false, error: errText });
-      } else {
-        const json = await resp.json();
-        results.push({ ok: true, pageId: json.id });
-      }
-    } catch (e) {
-      results.push({ ok: false, error: String(e) });
+      const ok = resp && (resp.status === 200 || resp.status === 201);
+      results.push({ ok, status: resp?.status });
+    } catch (err) {
+      results.push({ ok: false, error: String(err) });
     }
   }
 
-  const created = results.filter(r => r.ok).length;
-  return res.status(200).json({ ok: true, created, details: results });
+  return res.status(200).json({ ok: true, created: results.filter(r => r.ok).length, details: results });
 };
 
 function parseHeader(header) {
@@ -84,21 +95,9 @@ function parseHeader(header) {
 }
 
 function buildChildren(parsed, body) {
-  const blocks = [];
-  blocks.push({
-    object: 'block',
-    type: 'heading_2',
-    heading_2: { rich_text: [{ type: 'text', text: { content: parsed.typeLabel } }] }
-  });
-  const lines = String(body).split(/\r?\n/).filter(l => l.trim().length);
-  for (const line of lines) {
-    blocks.push({
-      object: 'block',
-      type: 'paragraph',
-      paragraph: { rich_text: [{ type: 'text', text: { content: line } }] }
-    });
-  }
-  return blocks;
+  return [
+    { object: 'block', type: 'paragraph', paragraph: { rich_text: [{ type: 'text', text: { content: body } }] } }
+  ];
 }
 
 async function notionCreatePageInDatabase(token, databaseId, parsed, body) {
