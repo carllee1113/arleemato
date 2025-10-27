@@ -33,6 +33,52 @@ export default function App() {
   const startTimestampRef = useRef(null);
   const lastTickRef = useRef(null);
 
+  // --- Sound helpers (web-only) ---
+  const audioCtxRef = useRef(null);
+  const ensureAudioCtx = () => {
+    if (Platform.OS !== 'web') return null;
+    if (!audioCtxRef.current) {
+      const AC = typeof window !== 'undefined' ? (window.AudioContext || window.webkitAudioContext) : null;
+      if (AC) audioCtxRef.current = new AC();
+    }
+    return audioCtxRef.current;
+  };
+
+  const playToneWeb = (frequency = 880, durationSec = 0.12, volume = 0.03, whenDelaySec = 0) => {
+    const ctx = ensureAudioCtx();
+    if (!ctx) return;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = frequency;
+    gain.gain.value = volume;
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    const startAt = ctx.currentTime + whenDelaySec;
+    osc.start(startAt);
+    osc.stop(startAt + durationSec);
+  };
+
+  const playBeep = (count = 1) => {
+    if (Platform.OS === 'web') {
+      for (let i = 0; i < count; i++) {
+        playToneWeb(880, 0.12, 0.03, i * 0.18);
+      }
+    } else {
+      // Native platforms: placeholder (no-op). Consider expo-av in future.
+    }
+  };
+
+  const playDoorbell = () => {
+    if (Platform.OS === 'web') {
+      // Simple two-tone ding-dong approximation
+      playToneWeb(880, 0.12, 0.03, 0);
+      playToneWeb(660, 0.18, 0.03, 0.2);
+    } else {
+      // Native platforms: placeholder (no-op). Consider expo-av in future.
+    }
+  };
+
   // Notes accumulation and download prompt states (declare early for effects)
   const [noteMode, setNoteMode] = useState(null); // 'NOTE' | 'DO_LATER' | 'IDEA' | null
   const [noteEntries, setNoteEntries] = useState([]); // accumulated entries across sessions
@@ -96,33 +142,47 @@ export default function App() {
     return () => clearInterval(id);
   }, [running]);
 
+  // Play beeps on session start
+  useEffect(() => {
+    if (!running) return;
+    // Beep once when a work session starts (at initial remaining)
+    if (state === STATES.WORK && remaining === focusSeconds) {
+      playBeep(1);
+    }
+    // Beep twice when a break session starts (at initial remaining)
+    if (state === STATES.SHORT_BREAK && remaining === restSeconds) {
+      playBeep(2);
+    }
+  }, [state, running, remaining, focusSeconds, restSeconds]);
+
   useEffect(() => {
     if (remaining === 0) {
       if (state === STATES.WORK) {
-        if (completedCycles < totalSessions - 1) {
-          // End work: start break without incrementing session square
-          setState(STATES.SHORT_BREAK);
-          setRemaining(restSeconds);
+        // After any work session, always start a short break.
+        setState(STATES.SHORT_BREAK);
+        setRemaining(restSeconds);
+        setRunning(true);
+      } else if (state === STATES.SHORT_BREAK) {
+        // A break has just ended. Decide what's next.
+        if (completedCycles < totalSessions) {
+          // It was not the final session's break. Start the next work session.
+          const nextCycles = completedCycles + 1;
+          recordDailyCompletion();
+          setCompletedCycles(nextCycles);
+          setState(STATES.WORK);
+          setRemaining(focusSeconds);
           setRunning(true);
         } else {
-          // Final work: complete the last session, pause, and prompt download if notes exist
+          // It was the final session's break. The plan is now complete.
           const committed = commitDraftIfAny();
           recordDailyCompletion();
-          setCompletedCycles(totalSessions);
           setRunning(false);
           setPlanCompleted(true);
           setState(STATES.PAUSED);
           setRemaining(focusSeconds);
+          playDoorbell();
           if ((noteEntries.length + (committed ? 1 : 0)) > 0) setShowDownloadPrompt(true);
         }
-      } else if (state === STATES.SHORT_BREAK) {
-        // Break end: increment completed session square, then start next work
-        const nextCycles = completedCycles + 1;
-        recordDailyCompletion();
-        setCompletedCycles(nextCycles);
-        setState(STATES.WORK);
-        setRemaining(focusSeconds);
-        setRunning(true);
       }
     }
   }, [remaining, state, completedCycles, totalSessions, focusSeconds, restSeconds, noteEntries, noteDraftBody, noteMode]);
@@ -135,12 +195,13 @@ export default function App() {
       setRemaining(focusSeconds);
       setRunning(true);
       setPlanCompleted(false);
-      setCompletedCycles(1); // fill first square on START
+      // Fill first square on initial work start
+      setCompletedCycles(1);
       return;
     }
     if (planCompleted) {
       // Restart scheduled sessions
-      setCompletedCycles(0);
+      setCompletedCycles(1);
       setState(STATES.WORK);
       setRemaining(focusSeconds);
       setRunning(true);
@@ -299,29 +360,31 @@ export default function App() {
   const passCurrentSession = () => {
     const continueRunning = running;
     if (state === STATES.WORK) {
-      if (completedCycles < totalSessions - 1) {
-        setState(STATES.SHORT_BREAK);
-        setRemaining(restSeconds);
+      // Passing a work session always takes you to the break.
+      setState(STATES.SHORT_BREAK);
+      setRemaining(restSeconds);
+      setRunning(continueRunning);
+    } else if (state === STATES.SHORT_BREAK || state === STATES.LONG_BREAK) {
+      // Passing a break. This is where we check for completion.
+      if (completedCycles < totalSessions) {
+        // Not the final break. Start next work session.
+        const nextCycles = completedCycles + 1;
+        recordDailyCompletion();
+        setCompletedCycles(nextCycles);
+        setState(STATES.WORK);
+        setRemaining(focusSeconds);
         setRunning(continueRunning);
       } else {
-        // Final work passed: commit any note and finish plan
+        // It was the final break. End the plan.
         const committed = commitDraftIfAny();
         recordDailyCompletion();
-        setCompletedCycles(totalSessions);
         setRunning(false);
         setPlanCompleted(true);
         setState(STATES.PAUSED);
         setRemaining(focusSeconds);
+        playDoorbell();
         if ((noteEntries.length + (committed ? 1 : 0)) > 0) setShowDownloadPrompt(true);
       }
-    } else if (state === STATES.SHORT_BREAK || state === STATES.LONG_BREAK) {
-      // Break passed counts as completing one session pair
-      const nextCycles = completedCycles + 1;
-      recordDailyCompletion();
-      setCompletedCycles(nextCycles);
-      setState(STATES.WORK);
-      setRemaining(focusSeconds);
-      setRunning(continueRunning);
     }
   };
 
@@ -503,7 +566,7 @@ export default function App() {
             <Text style={styles.helpText}>• Press START to begin a focus session.</Text>
             <Text style={styles.helpText}>• Press PAUSE to pause; RESUME to continue.</Text>
             <Text style={styles.helpText}>• Press PASS to move to break or next work.</Text>
-            <Text style={styles.helpText}>• Squares below time fill after each break; final fills at last work end.</Text>
+            <Text style={styles.helpText}>• Squares below time fill at each WORK start.</Text>
             <Text style={styles.helpText}>• Top-right clock shows local time in 24-hour format.</Text>
             <Text style={styles.helpText}>• Press NOTES / DO LATER / IDEA to open a note field.</Text>
             <Text style={styles.helpText}>• When notes are open, the timer pauses and primary shows RESUME.</Text>
