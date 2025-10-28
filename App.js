@@ -32,6 +32,7 @@ export default function App() {
   const [completedCycles, setCompletedCycles] = useState(0); // 0..totalSessions
   const startTimestampRef = useRef(null);
   const lastTickRef = useRef(null);
+  const lastWorkElapsedRef = useRef(0);
 
   // --- Sound helpers (web-only) ---
   const audioCtxRef = useRef(null);
@@ -101,6 +102,9 @@ export default function App() {
 
   const recordDailyCompletion = async () => {
     try {
+      if ((lastWorkElapsedRef.current || 0) < 5 * 60) {
+        return;
+      }
       const day = new Date().toISOString().slice(0, 10);
       const raw = await AsyncStorage.getItem(HISTORY_KEY);
       const map = raw ? JSON.parse(raw) : {};
@@ -158,6 +162,7 @@ export default function App() {
   useEffect(() => {
     if (remaining === 0) {
       if (state === STATES.WORK) {
+        lastWorkElapsedRef.current = focusSeconds;
         // After any work session, always start a short break.
         setState(STATES.SHORT_BREAK);
         setRemaining(restSeconds);
@@ -260,6 +265,13 @@ export default function App() {
       }
     }
   };
+  const handleNoteResume = () => {
+    // Commit any current draft, hide the panel, and resume clock if applicable
+    commitDraftIfAny();
+    if (hasStarted && !planCompleted) {
+      setRunning(true);
+    }
+  };
   const commitDraftIfAny = () => {
     if (!noteMode) return false;
     const body = (noteDraftBody || '').trim();
@@ -274,13 +286,33 @@ export default function App() {
   };
   const getNotesPlainText = () => noteEntries.map((e) => `${e.header}${e.body}`).join('\n');
   const downloadNotes = () => {
-    const text = getNotesPlainText();
+    const text = noteMode ? `${buildNoteDisplayPrefix()}${noteDraftBody}` : getNotesPlainText();
     if (Platform.OS === 'web') {
       const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
       link.download = `arleenote${currentDateTimeForFilename()}.txt`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
+  };
+
+  const getHistoryPlainText = () => {
+    const entries = Object.entries(historyMap).sort((a, b) => a[0].localeCompare(b[0]));
+    return entries.map(([date, count]) => `${date} ${count || 0}`).join('\n');
+  };
+  const downloadHistory = () => {
+    const text = getHistoryPlainText();
+    if (Platform.OS === 'web') {
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      // Filename requested to be date-time stamp only
+      link.download = `${currentDateTimeForFilename()}.txt`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -360,6 +392,7 @@ export default function App() {
   const passCurrentSession = () => {
     const continueRunning = running;
     if (state === STATES.WORK) {
+      lastWorkElapsedRef.current = Math.max(0, focusSeconds - remaining);
       // Passing a work session always takes you to the break.
       setState(STATES.SHORT_BREAK);
       setRemaining(restSeconds);
@@ -386,6 +419,29 @@ export default function App() {
         if ((noteEntries.length + (committed ? 1 : 0)) > 0) setShowDownloadPrompt(true);
       }
     }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await AsyncStorage.removeItem(HISTORY_KEY);
+    } catch (e) {}
+    setHistoryMap({});
+    setHasStarted(false);
+    setPlanCompleted(false);
+    setRunning(false);
+    setCompletedCycles(0);
+    setState(STATES.WORK);
+    setRemaining(focusSeconds);
+    setShowHistory(false);
+    setShowHelp(false);
+    setShowDownloadPrompt(false);
+    setNoteEntries([]);
+    setNoteMode(null);
+    setNoteDraftHeader('');
+    setNoteDraftBody('');
+    startTimestampRef.current = null;
+    lastTickRef.current = null;
+    lastWorkElapsedRef.current = 0;
   };
 
   const formatTime = (secs) => {
@@ -516,35 +572,41 @@ export default function App() {
         </View>
 
         {showPlan && (
-          <View style={styles.planPanel}>
-            <View style={styles.planRow}>
-              <Text style={styles.planLabel}>Sessions</Text>
-              <View style={styles.planStepper}>
-                <Pressable onPress={() => setPlanSessions(clamp(planSessions - 1, 1, 8))} style={styles.planStepBtn}><Text style={styles.planStepText}>-</Text></Pressable>
-                <Text style={styles.planValue}>{planSessions}</Text>
-                <Pressable onPress={() => setPlanSessions(clamp(planSessions + 1, 1, 8))} style={styles.planStepBtn}><Text style={styles.planStepText}>+</Text></Pressable>
+          <View style={styles.overlay}>
+            <View style={styles.planPanel}>
+              <Text style={styles.helpTitle}>Plan</Text>
+              <View style={styles.planRow}>
+                <Text style={styles.planLabel}>Sessions</Text>
+                <View style={styles.planStepper}>
+                  <Pressable onPress={() => setPlanSessions(clamp(planSessions - 1, 1, 8))} style={styles.planStepBtn}><Text style={styles.planStepText}>-</Text></Pressable>
+                  <Text style={styles.planValue}>{planSessions}</Text>
+                  <Pressable onPress={() => setPlanSessions(clamp(planSessions + 1, 1, 8))} style={styles.planStepBtn}><Text style={styles.planStepText}>+</Text></Pressable>
+                </View>
               </View>
-            </View>
-            <View style={styles.planRow}>
-              <Text style={styles.planLabel}>Focus (min)</Text>
-              <View style={styles.planStepper}>
-                <Pressable onPress={() => setPlanFocusMins(clamp(planFocusMins - 1, 1, 60))} style={styles.planStepBtn}><Text style={styles.planStepText}>-</Text></Pressable>
-                <Text style={styles.planValue}>{planFocusMins}</Text>
-                <Pressable onPress={() => setPlanFocusMins(clamp(planFocusMins + 1, 1, 60))} style={styles.planStepBtn}><Text style={styles.planStepText}>+</Text></Pressable>
+              <View style={styles.planRow}>
+                <Text style={styles.planLabel}>Focus (min)</Text>
+                <View style={styles.planStepper}>
+                  <Pressable onPress={() => setPlanFocusMins(clamp(planFocusMins - 1, 1, 60))} style={styles.planStepBtn}><Text style={styles.planStepText}>-</Text></Pressable>
+                  <Text style={styles.planValue}>{planFocusMins}</Text>
+                  <Pressable onPress={() => setPlanFocusMins(clamp(planFocusMins + 1, 1, 60))} style={styles.planStepBtn}><Text style={styles.planStepText}>+</Text></Pressable>
+                </View>
               </View>
-            </View>
-            <View style={styles.planRow}>
-              <Text style={styles.planLabel}>Rest (min)</Text>
-              <View style={styles.planStepper}>
-                <Pressable onPress={() => setPlanRestMins(clamp(planRestMins - 1, 1, 20))} style={styles.planStepBtn}><Text style={styles.planStepText}>-</Text></Pressable>
-                <Text style={styles.planValue}>{planRestMins}</Text>
-                <Pressable onPress={() => setPlanRestMins(clamp(planRestMins + 1, 1, 20))} style={styles.planStepBtn}><Text style={styles.planStepText}>+</Text></Pressable>
+              <View style={styles.planRow}>
+                <Text style={styles.planLabel}>Rest (min)</Text>
+                <View style={styles.planStepper}>
+                  <Pressable onPress={() => setPlanRestMins(clamp(planRestMins - 1, 1, 20))} style={styles.planStepBtn}><Text style={styles.planStepText}>-</Text></Pressable>
+                  <Text style={styles.planValue}>{planRestMins}</Text>
+                  <Pressable onPress={() => setPlanRestMins(clamp(planRestMins + 1, 1, 20))} style={styles.planStepBtn}><Text style={styles.planStepText}>+</Text></Pressable>
+                </View>
               </View>
-            </View>
-            <View style={styles.planActions}>
-              <Pressable onPress={() => applyPlan(true)} style={styles.button}>
-                <Text style={styles.buttonText}>START</Text>
-              </Pressable>
+              <View style={styles.downloadBtns}>
+                <Pressable onPress={() => applyPlan(true)} style={styles.button}>
+                  <Text style={styles.buttonText}>START</Text>
+                </Pressable>
+                <Pressable onPress={() => setShowPlan(false)} style={styles.buttonSecondary}>
+                  <Text style={styles.buttonText}>CLOSE</Text>
+                </Pressable>
+              </View>
             </View>
           </View>
         )}
@@ -561,45 +623,57 @@ export default function App() {
         )}
 
         {showHelp && (
-          <View style={styles.helpPanel}>
-            <Text style={styles.helpTitle}>Instructions</Text>
-            <Text style={styles.helpText}>• Press START to begin a focus session.</Text>
-            <Text style={styles.helpText}>• Press PAUSE to pause; RESUME to continue.</Text>
-            <Text style={styles.helpText}>• Press PASS to move to break or next work.</Text>
-            <Text style={styles.helpText}>• Squares below time fill at each WORK start.</Text>
-            <Text style={styles.helpText}>• Top-right clock shows local time in 24-hour format.</Text>
-            <Text style={styles.helpText}>• Press NOTES / DO LATER / IDEA to open a note field.</Text>
-            <Text style={styles.helpText}>• When notes are open, the timer pauses and primary shows RESUME.</Text>
-            <Text style={styles.helpText}>• Press RESUME to commit the current note and hide the input.</Text>
-            <Text style={styles.helpText}>• At plan end, download notes as a text file if any were entered.</Text>
-            <Text style={styles.helpText}>• Press RESTART to start a new plan (clears notes).</Text>
-            <Text style={styles.helpText}>• Press PLAN to configure sessions, focus minutes and rest minutes.</Text>
-            <View style={styles.planActions}>
-              <Pressable style={styles.buttonSecondary} onPress={() => setShowHelp(false)}>
-                <Text style={styles.buttonText}>OK</Text>
-              </Pressable>
+          <View style={styles.overlay}>
+            <View style={styles.helpPanel}>
+              <Text style={styles.helpTitle}>Instructions</Text>
+              <Text style={styles.helpText}>• Press START to begin a focus session.</Text>
+              <Text style={styles.helpText}>• Press PAUSE to pause; RESUME to continue.</Text>
+              <Text style={styles.helpText}>• Press PASS to move to break or next work.</Text>
+              <Text style={styles.helpText}>• Squares below time fill at each WORK start.</Text>
+              <Text style={styles.helpText}>• Top-right clock shows local time in 24-hour format.</Text>
+              <Text style={styles.helpText}>• Press NOTES / DO LATER / IDEA to open a note field.</Text>
+              <Text style={styles.helpText}>• When notes are open, the timer pauses and primary shows RESUME.</Text>
+              <Text style={styles.helpText}>• Press RESUME to commit the current note and hide the input.</Text>
+              <Text style={styles.helpText}>• At plan end, download notes as a text file if any were entered.</Text>
+              <Text style={styles.helpText}>• Press RESTART to start a new plan (clears notes).</Text>
+              <Text style={styles.helpText}>• Press PLAN to configure sessions, focus minutes and rest minutes.</Text>
+              <View style={styles.planActions}>
+                <Pressable style={styles.button} onPress={() => setShowHelp(false)}>
+                  <Text style={styles.buttonText}>OK</Text>
+                </Pressable>
+              </View>
             </View>
           </View>
         )}
 
         {showHistory && (
-          <View style={styles.helpPanel}>
-            <Text style={styles.helpTitle}>History</Text>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-              <View style={{ flex: 1 }}>
-                <HistoryHeatmap history={historyMap} weeks={12} />
+          <View style={styles.overlay}>
+            <View style={styles.helpPanel}>
+              <Text style={styles.helpTitle}>History</Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <View style={{ flex: 1 }}>
+                  <HistoryHeatmap history={historyMap} weeks={12} />
+                </View>
+                <View style={{ width: 90, marginLeft: 8, alignItems: 'flex-end' }}>
+                  <Text style={{ color: '#9FEA8F', fontSize: 18, fontFamily: 'VT323_400Regular' }}>{Object.values(historyMap).reduce((s,v)=>s+(v||0),0)}</Text>
+                  <Text style={{ color: '#5F7F5F', fontSize: 12, fontFamily: 'VT323_400Regular' }}>SESSIONS</Text>
+                  <Text style={{ color: '#9FEA8F', fontSize: 18, fontFamily: 'VT323_400Regular', marginTop: 6 }}>{Object.values(historyMap).filter(v=>v>0).length}</Text>
+                  <Text style={{ color: '#5F7F5F', fontSize: 12, fontFamily: 'VT323_400Regular' }}>DAYS</Text>
+                </View>
               </View>
-              <View style={{ width: 90, marginLeft: 8, alignItems: 'flex-end' }}>
-                <Text style={{ color: '#9FEA8F', fontSize: 18, fontFamily: 'VT323_400Regular' }}>{Object.values(historyMap).reduce((s,v)=>s+(v||0),0)}</Text>
-                <Text style={{ color: '#5F7F5F', fontSize: 12, fontFamily: 'VT323_400Regular' }}>SESSIONS</Text>
-                <Text style={{ color: '#9FEA8F', fontSize: 18, fontFamily: 'VT323_400Regular', marginTop: 6 }}>{Object.values(historyMap).filter(v=>v>0).length}</Text>
-                <Text style={{ color: '#5F7F5F', fontSize: 12, fontFamily: 'VT323_400Regular' }}>DAYS</Text>
+              <View style={styles.downloadBtns}>
+                <Pressable style={styles.button} onPress={downloadNotes}>
+                  <Text style={styles.buttonText}>EXPORT NOTES</Text>
+                </Pressable>
+                <Pressable style={styles.button} onPress={() => setShowHistory(false)}>
+                  <Text style={styles.buttonText}>CLOSE</Text>
+                </Pressable>
               </View>
-            </View>
-            <View style={styles.planActions}>
-              <Pressable style={styles.buttonSecondary} onPress={() => setShowHistory(false)}>
-                <Text style={styles.buttonText}>CLOSE</Text>
-              </Pressable>
+              <View style={styles.planActions}>
+                <Pressable style={styles.buttonSecondary} onPress={handleLogout}>
+                  <Text style={styles.buttonText}>LOGOUT</Text>
+                </Pressable>
+              </View>
             </View>
           </View>
         )}
@@ -607,36 +681,41 @@ export default function App() {
         {/* Notes / Do Later / Idea quick input bar */}
         <View style={styles.noteBar}>
           <Pressable style={styles.noteBtn} onPress={() => openNote('NOTE')}>
-            <Text style={styles.buttonText}>NOTES</Text>
+            <Text style={styles.buttonText}>WRITE NOTES</Text>
           </Pressable>
           <Pressable style={styles.noteBtn} onPress={() => openNote('DO_LATER')}>
             <Text style={styles.buttonText}>DO LATER</Text>
           </Pressable>
           <Pressable style={styles.noteBtn} onPress={() => openNote('IDEA')}>
-            <Text style={styles.buttonText}>IDEA</Text>
+            <Text style={styles.buttonText}>INSTANT IDEA</Text>
           </Pressable>
         </View>
 
         {noteMode && (
-          <View style={styles.noteInputPanel}>
-            <TextInput
-              value={`${buildNoteDisplayPrefix()}${noteDraftBody}`}
-              onChangeText={handleNoteChange}
-              multiline
-              style={styles.noteInput}
-              placeholder="Type here…"
-              placeholderTextColor="#5F7F5F"
-            />
+          <View style={styles.overlay}>
+            <View style={styles.noteInputPanel}>
+              <TextInput
+                value={`${buildNoteDisplayPrefix()}${noteDraftBody}`}
+                onChangeText={handleNoteChange}
+                multiline
+                autoFocus
+                style={styles.noteInput}
+                placeholder="Type here…"
+                placeholderTextColor="#5F7F5F"
+              />
+              <View style={styles.planActions}>
+                <Pressable style={styles.button} onPress={handleNoteResume}>
+                  <Text style={styles.buttonText}>RESUME</Text>
+                </Pressable>
+              </View>
+            </View>
           </View>
         )}
 
         {showDownloadPrompt && (
   <View style={styles.downloadPanel}>
-    <Text style={styles.downloadText}>Sessions complete. Send notes to Notion?</Text>
+    <Text style={styles.downloadText}>Sessions complete. Download your notes?</Text>
     <View style={styles.downloadBtns}>
-      <Pressable style={styles.button} onPress={handleSendToNotion}>
-        <Text style={styles.buttonText}>{notionSyncResult ? 'SENT' : 'SEND TO NOTION'}</Text>
-      </Pressable>
       <Pressable style={styles.buttonSecondary} onPress={downloadNotes}>
         <Text style={styles.buttonText}>DOWNLOAD NOTES</Text>
       </Pressable>
@@ -671,6 +750,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.4,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
+    position: 'relative',
   },
   lcd: {
     borderColor: '#1C1C1C',
@@ -738,6 +818,8 @@ const styles = StyleSheet.create({
     borderColor: '#334033',
     backgroundColor: '#0F120F',
     borderRadius: 8,
+    width: '92%',
+    alignSelf: 'center',
   },
   planRow: {
     flexDirection: 'row',
@@ -853,6 +935,7 @@ const styles = StyleSheet.create({
     borderColor: '#334033',
     backgroundColor: '#0F120F',
     borderRadius: 8,
+    width: '92%',
   },
   noteInput: {
     minHeight: 80,
@@ -879,12 +962,24 @@ const styles = StyleSheet.create({
     fontFamily: 'VT323_400Regular',
   },
   helpPanel: {
-    marginTop: 12,
+    marginTop: 0,
     padding: 12,
     borderWidth: 2,
     borderColor: '#334033',
     backgroundColor: '#0F120F',
     borderRadius: 8,
+    width: '92%',
+  },
+  overlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 100,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
   },
   helpTitle: {
     color: '#9FEA8F',
@@ -906,6 +1001,8 @@ const styles = StyleSheet.create({
     borderColor: '#334033',
     backgroundColor: '#0F120F',
     borderRadius: 8,
+    width: '92%',
+    alignSelf: 'center',
   },
   downloadText: {
     color: '#9FEA8F',
