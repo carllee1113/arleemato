@@ -4,6 +4,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFonts, VT323_400Regular } from '@expo-google-fonts/vt323';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import Landing from './components/Landing';
+import FloatingAuthPanel from './components/FloatingAuthPanel';
+import { supabase } from './lib/supabaseClient';
  
 
 const DEFAULT_WORK_SECONDS = 25 * 60;
@@ -16,11 +20,37 @@ const STATES = {
   PAUSED: 'PAUSED',
 };
 
-export default function App() {
+ export default function App() {
+   return (
+     <AuthProvider>
+       <AppWithAuth />
+     </AuthProvider>
+   );
+ }
+
+ function AppWithAuth() {
+   const { session } = useAuth();
+   const [showAuthPanel, setShowAuthPanel] = useState(false);
+   // Fonts are needed both for landing and timer UI
+   const [fontsLoaded] = useFonts({ VT323_400Regular });
+   if (!fontsLoaded) return null;
+   if (!session) {
+     return (
+       <>
+         <Landing onOpenAuth={() => setShowAuthPanel(true)} />
+         <FloatingAuthPanel visible={showAuthPanel} onClose={() => setShowAuthPanel(false)} />
+       </>
+     );
+   }
+   return <TimerApp />;
+ }
+
+ function TimerApp() {
   const [fontsLoaded] = useFonts({
     VT323_400Regular,
     DSEG7ClassicBoldItalic: require('./assets/fonts/DSEG7Classic-BoldItalic.ttf'),
   });
+  const { session, signOut } = useAuth();
   const [state, setState] = useState(STATES.WORK);
   const [running, setRunning] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
@@ -41,7 +71,7 @@ export default function App() {
     if (!audioCtxRef.current) {
       const AC = typeof window !== 'undefined' ? (window.AudioContext || window.webkitAudioContext) : null;
       if (AC) audioCtxRef.current = new AC();
-    }
+ }
     return audioCtxRef.current;
   };
 
@@ -100,6 +130,28 @@ export default function App() {
     })();
   }, []);
 
+  // When opening history and logged in, fetch Supabase-backed history
+  useEffect(() => {
+    if (!showHistory) return;
+    const userId = session?.user?.id;
+    if (!userId) return;
+    (async () => {
+      const { data, error } = await supabase
+        .from('pomodoro_sessions')
+        .select('started_at, created_at')
+        .eq('user_id', userId);
+      if (error || !data) return;
+      const map = {};
+      for (const row of data) {
+        const ts = row.started_at || row.created_at;
+        if (!ts) continue;
+        const day = String(ts).slice(0, 10);
+        map[day] = (map[day] || 0) + 1;
+      }
+      setHistoryMap(map);
+    })();
+  }, [showHistory, session]);
+
   const recordDailyCompletion = async () => {
     try {
       if ((lastWorkElapsedRef.current || 0) < 5 * 60) {
@@ -111,6 +163,18 @@ export default function App() {
       map[day] = (map[day] || 0) + 1;
       await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(map));
       setHistoryMap(map);
+
+      // Also record to Supabase when authenticated
+      const userId = session?.user?.id;
+      if (userId) {
+        await supabase.from('pomodoro_sessions').insert({
+          user_id: userId,
+          started_at: new Date().toISOString(),
+          duration_seconds: Math.floor(lastWorkElapsedRef.current || 0),
+          is_work: true,
+          note_count: Array.isArray(noteEntries) ? noteEntries.length : 0,
+        });
+      }
     } catch (e) {}
   };
 
@@ -425,6 +489,8 @@ export default function App() {
     try {
       await AsyncStorage.removeItem(HISTORY_KEY);
     } catch (e) {}
+    // Sign out from Supabase (triggers Landing render via AppWithAuth)
+    try { await signOut(); } catch (e) {}
     setHistoryMap({});
     setHasStarted(false);
     setPlanCompleted(false);

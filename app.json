@@ -29,7 +29,9 @@
       "expo-font"
     ],
     "extra": {
-      "notionEndpoint": "https://arleemato.vercel.app/api/notion"
+      "notionEndpoint": "https://arleemato.vercel.app/api/notion",
+      "supabaseUrl": "https://metqpckxjcboorvosctr.supabase.co",
+      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ldHFwY2t4amNib29ydm9zY3RyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE1NTQ2NjIsImV4cCI6MjA3NzEzMDY2Mn0.UO3EWL9xaCa4o3nXPkM74IBs0ciA4lncpFzeE7q2d70"
     }
   }
 }
